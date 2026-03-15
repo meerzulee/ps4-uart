@@ -1,0 +1,5 @@
+logs/
+.uart_pid
+.uart_logfile
+__pycache__/
+*.pyc
