@@ -24,7 +24,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-PORT = "/dev/cu.wchusbserial3140"
+PORT = os.environ.get("PS4_UART_PORT", "/dev/ttyUSB0")
 BAUD = 115200
 BASE_DIR = Path(__file__).parent
 LOG_DIR = BASE_DIR / "logs"
@@ -100,16 +100,36 @@ def capture_loop(logfile):
                         log.write(msg)
                         log.flush()
                     reconnect_count = 0
-                except serial.SerialException:
+                except serial.SerialException as e:
+                    # Distinguish "port missing" (retry-able) from "permission
+                    # denied" / "device busy" (won't self-resolve).
+                    errno = getattr(e, "errno", None)
+                    if errno == 13:
+                        kind = "PERMISSION DENIED — add user to the tty group "
+                        kind += "(Arch: uucp, Debian/Ubuntu: dialout) and re-login, "
+                        kind += "or run via `newgrp <group>`"
+                    elif errno == 2:
+                        kind = "device not present"
+                    elif errno == 16:
+                        kind = "device busy — another process holds it"
+                    else:
+                        kind = f"errno={errno}"
                     reconnect_count += 1
-                    if reconnect_count == 1:
+                    if reconnect_count == 1 or reconnect_count % 30 == 0:
                         log.write(
-                            f"\n# [!] Port lost at {datetime.now().isoformat()}, reconnecting...\n"
+                            f"\n# [!] Cannot open {PORT} at "
+                            f"{datetime.now().isoformat()}: {kind} "
+                            f"(retry #{reconnect_count})\n"
                         )
                         log.flush()
                     time.sleep(RECONNECT_DELAY)
                     continue
-                except Exception:
+                except Exception as e:
+                    log.write(
+                        f"\n# [!] Open error at {datetime.now().isoformat()}: "
+                        f"{type(e).__name__}: {e}\n"
+                    )
+                    log.flush()
                     time.sleep(RECONNECT_DELAY)
                     continue
 
