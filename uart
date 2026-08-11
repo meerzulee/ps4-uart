@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "$script_dir/.venv/bin/python" ]; then
+    python="$script_dir/.venv/bin/python"
+else
+    python=python3
+fi
+
+exec "$python" "$script_dir/ps4uart.py" "$@"

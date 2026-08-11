@@ -1,5 +1,14 @@
 logs/
+sessions/
+.venv/
+.DS_Store
 .uart_pid
 .uart_logfile
+.uart_port
+.uart_state.json
+.uart_session.json
+.uart_fence_request.json
+.uart_lifecycle.lock
+.uart_session.lock
 __pycache__/
 *.pyc
