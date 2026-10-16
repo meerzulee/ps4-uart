@@ -1,4 +1,5 @@
 import json
+import errno
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -30,6 +31,44 @@ class TextCompactionTests(unittest.TestCase):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_serial_open_failure_preserves_reason_without_polluting_raw_capture(self):
+        class FakeSerialException(OSError):
+            pass
+
+        module = SimpleNamespace(SerialException=FakeSerialException)
+        for code, expected in [
+            (errno.EACCES, "permission denied"),
+            (errno.ENOENT, "device not present"),
+            (errno.EBUSY, "device busy"),
+        ]:
+            with self.subTest(errno=code), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                raw = root / "capture.raw"
+                events = root / "capture.events.jsonl"
+                state_path = root / ".state.json"
+                with (
+                    patch.object(ps4uart, "CAPTURE_STATE_FILE", state_path),
+                    patch.object(ps4uart, "FENCE_REQUEST_FILE", root / ".fence.json"),
+                    patch.object(ps4uart, "LOG_DIR", root),
+                    patch.object(ps4uart, "MAX_RECONNECT_ATTEMPTS", 1),
+                    patch.object(ps4uart, "serial_module", return_value=module),
+                    patch.object(ps4uart, "open_serial", side_effect=FakeSerialException(code, "open failed")),
+                    patch.object(ps4uart.time, "sleep"),
+                ):
+                    ps4uart.capture_loop(raw, events, "/dev/fake", "generation")
+                self.assertEqual(raw.read_bytes(), b"")
+                state = json.loads(state_path.read_text())
+                self.assertNotEqual(state["status"], "open")
+                self.assertEqual(state["connection_epoch"], 0)
+                self.assertIn(expected, state["failure_reason"])
+                self.assertIn("/dev/fake", state["failure_reason"])
+                failed = [
+                    json.loads(line) for line in events.read_text().splitlines()
+                    if json.loads(line)["event"] == "serial_open_failed"
+                ]
+                self.assertEqual(len(failed), 1)
+                self.assertIn(expected, failed[0]["detail"])
+
     def test_readiness_requires_open_serial_state(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

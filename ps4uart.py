@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import errno
 import fcntl
 import glob
 import hashlib
@@ -436,6 +437,20 @@ def request_capture_fence(capture, request_id=None):
     return None, f"capture fence timed out after {FENCE_TIMEOUT} seconds"
 
 
+def serial_failure_detail(exc, port):
+    hints = {
+        errno.EACCES: (
+            "permission denied; add your user to the serial device's group "
+            "(Arch: uucp, Debian/Ubuntu: dialout) and log in again"
+        ),
+        errno.ENOENT: "device not present",
+        errno.EBUSY: "device busy; another process may hold it",
+    }
+    code = getattr(exc, "errno", None)
+    hint = hints.get(code, f"errno={code}" if code is not None else "serial error")
+    return f"{port}: {hint}; {type(exc).__name__}: {exc}"
+
+
 def capture_loop(raw_path, events_path, port, generation):
     """Capture exact UART bytes and keep logger events in a sidecar."""
     running = True
@@ -485,8 +500,9 @@ def capture_loop(raw_path, events_path, port, generation):
                     write_capture_event(events, state, "serial_opened")
                 except serial_module().SerialException as exc:
                     reconnect_count += 1
-                    write_capture_state(state, failure_reason=str(exc))
-                    write_capture_event(events, state, "serial_open_failed", str(exc))
+                    detail = serial_failure_detail(exc, port)
+                    write_capture_state(state, failure_reason=detail)
+                    write_capture_event(events, state, "serial_open_failed", detail)
                     time.sleep(RECONNECT_DELAY)
                     continue
                 except Exception as exc:
@@ -532,12 +548,13 @@ def capture_loop(raw_path, events_path, port, generation):
                     pass
                 running = False
             except serial_module().SerialException as exc:
+                detail = serial_failure_detail(exc, port)
                 write_capture_state(
                     state,
                     status="reconnecting",
-                    failure_reason=str(exc),
+                    failure_reason=detail,
                 )
-                write_capture_event(events, state, "serial_lost", str(exc))
+                write_capture_event(events, state, "serial_lost", detail)
                 try:
                     ser.close()
                 except Exception:
