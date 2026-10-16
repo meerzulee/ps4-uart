@@ -9,7 +9,12 @@ Tested on firmware **12.02**.
 - Jailbreakable PlayStation 4 (any model)
 - Arduino with CH340 USB-to-serial chip
 - Soldering iron + wires
-- macOS with Python 3 and `pyserial` (`pip install pyserial`)
+- macOS ARM64 or Linux x86-64 with Python 3 and `pyserial` in a virtual environment
+
+Read [AGENTS.md](AGENTS.md) before development or hardware work. The current
+serial auto-detection patterns cover macOS; Linux requires an explicit port.
+The Linux control path is present but physical capture on the new Arch host
+still needs verification.
 
 ## Setup
 
@@ -41,7 +46,7 @@ Wire the Arduino as a USB-to-serial passthrough:
 
 > Grounding RST disables the ATmega chip, making the CH340 act as a direct USB-to-serial converter.
 
-Plug the Arduino into your Mac via USB.
+Plug the Arduino into the development computer via USB.
 
 ### 4. Run the Logger
 
@@ -50,20 +55,56 @@ python3 -m venv .venv
 . .venv/bin/activate
 python3 -m pip install -r requirements.txt
 
-./uart start    # auto-detect one supported USB UART
+./uart start    # macOS: auto-detect one supported USB UART
 ./uart status   # must say READY before a hardware action
 ./uart live     # watch output in real-time
 ```
 
-The port can be selected explicitly if more than one adapter is connected:
+On macOS ARM64, select a port explicitly if more than one adapter is connected
+(replace this example with your actual device):
 
 ```bash
 ./uart start --port /dev/cu.wchusbserial140
 ```
 
-`PS4_UART_PORT=/dev/cu.DEVICE` is also supported. Device suffixes may change
-after reconnecting, so the repository does not hard-code a machine-specific
-path.
+On Linux x86-64, select the adapter explicitly, preferably by its stable ID:
+
+```bash
+ls -l /dev/serial/by-id/
+# Replace YOUR_ADAPTER with the actual entry above.
+./uart start --port /dev/serial/by-id/YOUR_ADAPTER
+./uart status
+```
+
+`PS4_UART_PORT` is also supported on either host. Check the adapter's owning
+group if Linux reports permission denied; grant your user that group's access
+and log in again. Device suffixes may change after reconnecting, so the
+repository does not hard-code a machine-specific path.
+
+### Development and device handoff
+
+For Arch, install `python` and `python-pip`; on an Apple Silicon Mac use
+Homebrew Python or another managed Python 3 installation. Recreate `.venv`
+on each computer and run the local checks without connecting to the console:
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+```
+
+Get the source and agent instructions from the public repository:
+
+```bash
+git clone https://github.com/meerzulee/ps4-uart.git
+cd ps4-uart
+```
+
+The published `master` combines bounded-session support with serial-open
+diagnostics. For the exact revision used by the full PS4 workspace, follow
+`omarchy-ps4/manifests/development-sources.json` and its setup helper.
+
+Keep `logs/` and `sessions/` private. Transfer completed evidence separately
+when needed. Recreate the logger connection on the destination; do not copy
+`.uart_*` runtime files or treat an old active session as continuous.
 
 ## Bounded debugging sessions
 
